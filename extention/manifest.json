@@ -1,0 +1,33 @@
+{
+  "manifest_version": 3,
+  "name": "YouTube RAG Chat",
+  "version": "1.0.0",
+  "description": "Chat with any YouTube video using AI",
+
+  "permissions": [
+    "activeTab",
+    "scripting"
+  ],
+
+  "host_permissions": [
+    "https://www.youtube.com/*",
+    "http://localhost:8000/*"
+  ],
+
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16":  "icons/image.png",
+      "48":  "icons/image.png",
+      "128": "icons/image.png"
+    }
+  },
+
+  "content_scripts": [
+    {
+      "matches": ["https://www.youtube.com/watch*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
