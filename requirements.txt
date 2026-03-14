@@ -1,0 +1,9 @@
+youtube-transcript-api
+langchain
+langchain-text-splitters
+langchain-google-genai
+langchain-community
+langchain-pinecone
+langchain-groq
+pinecone
+faiss-cpu
