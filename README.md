@@ -3,6 +3,22 @@
 Chat with any YouTube video using AI. The extension auto-detects the video
 you're watching, indexes it in Pinecone, and lets you ask questions via a popup.
 
+🌐 **Live API:** [yoututbe-caption-rag.vercel.app](https://yoututbe-caption-rag.vercel.app)
+
+---
+
+## Demo
+
+### Screenshots
+
+| Indexing Video | Asking a Question |
+|:---:|:---:|
+| ![Screenshot 1](outputs/image.png) | ![Screenshot 2](outputs/Screenshot.png) |
+
+### Video Demo
+
+[▶ Watch screen recording](outputs/screen-capture-RAG.webm)
+
 ---
 
 ## Project Structure
@@ -15,12 +31,15 @@ youtube_rag/
 ├── retriever.py       # Retrieval logic
 ├── chain.py           # LLM + RAG chain
 ├── main.py            # CLI entry point (optional)
-├── server.py          # FastAPI backend ← run this
-└── extension/
+├── server.py          # FastAPI backend (deployed on Vercel)
+├── outputs/           # Screenshots and demo video
+└── extention/
     ├── manifest.json
     ├── popup.html
     ├── popup.js
-    └── content.js
+    ├── content.js
+    └── icons/
+        └── image.png
 ```
 
 ---
@@ -33,43 +52,27 @@ youtube_rag/
 pip install -r requirements.txt
 ```
 
-### 2. Add API keys in config.py
+### 2. Configure API Keys
 
-```python
-GOOGLE_API_KEY   = "your_key"
-GROQ_API_KEY     = "your_key"
-PINECONE_API_KEY = "your_key"
+Create a `.env` file in the root directory:
+
+```env
+GOOGLE_API_KEY=your_key
+GROQ_API_KEY=your_key
+PINECONE_API_KEY=your_key
 ```
 
-### 3. Start the FastAPI server
+> The backend is already deployed at [yoututbe-caption-rag.vercel.app](https://yoututbe-caption-rag.vercel.app).  
+> You only need to run it locally if you want to develop or self-host.
 
-```bash
-uvicorn server:app --reload --port 8000
-```
-
-You should see:
-```
-🚀 Starting YouTube RAG server...
-  Loading embedding model...
-  Connecting to Pinecone...
-✅ Server ready!
-```
-
-### 4. Load the Chrome Extension
+### 3. Load the Chrome Extension
 
 1. Open Chrome and go to: `chrome://extensions`
-2. Enable **Developer mode** (top right toggle)
+2. Enable **Developer mode** (top-right toggle)
 3. Click **Load unpacked**
-4. Select the `extension/` folder
+4. Select the `extention/` folder
 
-### 5. Add Icons (optional)
-
-Create an `extension/icons/` folder with:
-- `icon16.png`  (16×16)
-- `icon48.png`  (48×48)
-- `icon128.png` (128×128)
-
-Or remove the `"default_icon"` section from `manifest.json`.
+> The extension is pre-configured to talk to the live Vercel backend — no local server needed.
 
 ---
 
@@ -85,18 +88,34 @@ Or remove the `"default_icon"` section from `manifest.json`.
 
 ## API Endpoints
 
-| Method | Endpoint            | Description                      |
-|--------|---------------------|----------------------------------|
-| GET    | `/`                 | Health check                     |
-| GET    | `/status/{video_id}`| Check if video is indexed        |
-| POST   | `/index`            | Index a video (skip if exists)   |
-| POST   | `/chat`             | Ask a question about a video     |
+Base URL: `https://yoututbe-caption-rag.vercel.app`
+
+| Method | Endpoint             | Description                     |
+|--------|----------------------|---------------------------------|
+| GET    | `/`                  | Health check                    |
+| GET    | `/status/{video_id}` | Check if video is indexed       |
+| POST   | `/index`             | Index a video (skip if exists)  |
+| POST   | `/chat`              | Ask a question about a video    |
+
+---
+
+## Self-Hosting (Optional)
+
+If you want to run the backend locally:
+
+```bash
+uvicorn server:app --reload --port 8000
+```
+
+Then update the API base URL in `extention/popup.js` to `http://localhost:8000`.
+
+To deploy your own instance on Vercel, push the repo and set the environment variables (`GOOGLE_API_KEY`, `GROQ_API_KEY`, `PINECONE_API_KEY`) in your Vercel project settings.
 
 ---
 
 ## Notes
 
-- The server must be running locally for the extension to work
+- Works with any YouTube video that has captions/subtitles enabled
 - Videos only need to be indexed once — subsequent visits skip re-indexing
 - Free Pinecone tier supports hundreds of videos in one index
-- Works with any YouTube video that has captions/subtitles enabled
+- The live backend is stateless; all vector data is persisted in Pinecone

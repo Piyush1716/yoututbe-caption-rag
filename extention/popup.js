@@ -1,6 +1,6 @@
 // popup.js — All logic for the extension popup
 
-const API_BASE = "http://localhost:8000";
+const API_BASE = "https://yoututbe-caption-rag.vercel.app/";
 
 // ── DOM Elements ──────────────────────────────────────────────────────────────
 const statusBadge    = document.getElementById("status-badge");

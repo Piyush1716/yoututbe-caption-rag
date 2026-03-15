@@ -9,3 +9,4 @@ pinecone
 faiss-cpu
 fastapi
 uvicorn
+python-dotenv
