@@ -1,0 +1,780 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>RAG Studio</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg: #0a0a0f;
+    --surface: #111118;
+    --surface2: #18181f;
+    --border: #2a2a38;
+    --accent: #7fff6e;
+    --accent2: #6e8fff;
+    --accent3: #ff6e9c;
+    --text: #e8e8f0;
+    --muted: #6b6b80;
+    --mono: 'Space Mono', monospace;
+    --sans: 'Syne', sans-serif;
+    --radius: 10px;
+    --transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ── Grid bg ── */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(127,255,110,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(127,255,110,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* ── Layout ── */
+  .shell {
+    position: relative;
+    z-index: 1;
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 0 24px 80px;
+  }
+
+  header {
+    padding: 48px 0 40px;
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 40px;
+  }
+
+  .logo {
+    font-family: var(--sans);
+    font-weight: 800;
+    font-size: 28px;
+    letter-spacing: -0.5px;
+  }
+  .logo span { color: var(--accent); }
+
+  .server-badge {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--muted);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 6px 14px;
+    border-radius: 999px;
+  }
+  .dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--muted);
+    transition: background 0.3s;
+  }
+  .dot.live { background: var(--accent); box-shadow: 0 0 8px var(--accent); animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
+
+  /* ── Tabs ── */
+  .tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 32px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 4px;
+    width: fit-content;
+  }
+  .tab {
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    padding: 8px 20px;
+    border-radius: 7px;
+    border: none;
+    cursor: pointer;
+    background: transparent;
+    color: var(--muted);
+    transition: var(--transition);
+  }
+  .tab.active {
+    background: var(--accent);
+    color: #0a0a0f;
+  }
+  .tab:not(.active):hover { color: var(--text); }
+
+  /* ── Panels ── */
+  .panel { display: none; }
+  .panel.active { display: block; animation: fadeUp 0.3s ease; }
+  @keyframes fadeUp { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:none; } }
+
+  /* ── Cards ── */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 28px;
+    margin-bottom: 20px;
+  }
+  .card-title {
+    font-size: 11px;
+    font-family: var(--mono);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 18px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .card-title::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  /* ── Form elements ── */
+  label {
+    display: block;
+    font-size: 12px;
+    font-family: var(--mono);
+    color: var(--muted);
+    margin-bottom: 6px;
+    letter-spacing: 0.05em;
+  }
+
+  input[type="text"], textarea {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px;
+    padding: 11px 14px;
+    outline: none;
+    transition: border-color var(--transition);
+    resize: vertical;
+  }
+  input[type="text"]:focus, textarea:focus {
+    border-color: var(--accent);
+  }
+  input[type="text"]::placeholder, textarea::placeholder { color: var(--muted); }
+
+  .row { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: end; }
+  .row-3 { display: grid; grid-template-columns: 1fr 1fr auto; gap: 10px; align-items: end; }
+
+  /* ── Buttons ── */
+  .btn {
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 11px 22px;
+    border-radius: 7px;
+    border: none;
+    cursor: pointer;
+    transition: var(--transition);
+    white-space: nowrap;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+  }
+  .btn-primary {
+    background: var(--accent);
+    color: #0a0a0f;
+  }
+  .btn-primary:hover { filter: brightness(1.1); transform: translateY(-1px); }
+  .btn-primary:active { transform: translateY(0); }
+  .btn-secondary {
+    background: transparent;
+    color: var(--text);
+    border: 1px solid var(--border);
+  }
+  .btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
+  .btn-blue {
+    background: var(--accent2);
+    color: #fff;
+  }
+  .btn-blue:hover { filter: brightness(1.15); transform: translateY(-1px); }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none !important; }
+
+  /* ── Upload zone ── */
+  .upload-zone {
+    border: 2px dashed var(--border);
+    border-radius: var(--radius);
+    padding: 40px 24px;
+    text-align: center;
+    cursor: pointer;
+    transition: var(--transition);
+    position: relative;
+  }
+  .upload-zone:hover, .upload-zone.dragover {
+    border-color: var(--accent2);
+    background: rgba(110,143,255,0.04);
+  }
+  .upload-zone input[type="file"] {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    cursor: pointer;
+    width: 100%;
+    height: 100%;
+  }
+  .upload-icon { font-size: 32px; margin-bottom: 10px; }
+  .upload-label { font-size: 14px; color: var(--muted); }
+  .upload-label strong { color: var(--text); display: block; margin-bottom: 4px; }
+  .upload-label span { font-family: var(--mono); font-size: 11px; }
+  .file-chosen {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 14px;
+    padding: 10px 14px;
+    background: var(--surface2);
+    border-radius: 7px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--accent2);
+  }
+
+  /* ── Response / log area ── */
+  .response-box {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    padding: 16px;
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 1.7;
+    min-height: 60px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    color: var(--text);
+    transition: border-color 0.3s;
+  }
+  .response-box.success { border-color: var(--accent); }
+  .response-box.error   { border-color: var(--accent3); color: var(--accent3); }
+  .response-box.loading { color: var(--muted); animation: blink 1s infinite; }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+  /* ── Chat ── */
+  .chat-window {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    height: 360px;
+    overflow-y: auto;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    margin-bottom: 14px;
+    scroll-behavior: smooth;
+  }
+  .chat-window::-webkit-scrollbar { width: 4px; }
+  .chat-window::-webkit-scrollbar-track { background: transparent; }
+  .chat-window::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  .msg {
+    max-width: 82%;
+    padding: 12px 16px;
+    border-radius: 10px;
+    font-size: 13px;
+    line-height: 1.6;
+    animation: msgIn 0.25s ease;
+  }
+  @keyframes msgIn { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:none; } }
+  .msg.user {
+    background: var(--accent2);
+    color: #fff;
+    align-self: flex-end;
+    border-bottom-right-radius: 3px;
+    font-family: var(--sans);
+  }
+  .msg.bot {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    align-self: flex-start;
+    border-bottom-left-radius: 3px;
+    font-family: var(--mono);
+    font-size: 12px;
+  }
+  .msg.bot.thinking { color: var(--muted); animation: blink 1s infinite; }
+  .msg-row { display: flex; gap: 10px; }
+  .chat-input-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 10px;
+  }
+
+  /* ── Status section ── */
+  .status-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-top: 18px;
+  }
+  .stat-box {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+  }
+  .stat-label { font-family: var(--mono); font-size: 10px; color: var(--muted); letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 6px; }
+  .stat-value { font-family: var(--mono); font-size: 15px; font-weight: 700; }
+  .stat-value.ok   { color: var(--accent); }
+  .stat-value.warn { color: #ffcc6e; }
+  .stat-value.err  { color: var(--accent3); }
+
+  .badge {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-weight: 700;
+  }
+  .badge.yt  { background: rgba(255,110,110,0.15); color: #ff6e6e; border: 1px solid rgba(255,110,110,0.3); }
+  .badge.stt { background: rgba(110,143,255,0.15); color: var(--accent2); border: 1px solid rgba(110,143,255,0.3); }
+
+  /* ── Divider ── */
+  .divider {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 24px 0;
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.1em;
+  }
+  .divider::before, .divider::after { content:''; flex:1; height:1px; background: var(--border); }
+
+  .field { margin-bottom: 16px; }
+
+  /* ── Server config ── */
+  .config-bar {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px 20px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 32px;
+    font-family: var(--mono);
+    font-size: 12px;
+  }
+  .config-bar label { margin:0; white-space: nowrap; }
+  .config-bar input {
+    flex: 1;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 7px 12px;
+    outline: none;
+  }
+  .config-bar input:focus { border-color: var(--accent); }
+
+  /* ── Progress bar ── */
+  .progress-wrap { margin-top: 12px; }
+  .progress-label { font-family: var(--mono); font-size: 11px; color: var(--muted); margin-bottom: 6px; }
+  .progress-bar { height: 3px; background: var(--border); border-radius: 2px; overflow: hidden; }
+  .progress-fill {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, var(--accent2), var(--accent));
+    border-radius: 2px;
+    transition: width 0.4s ease;
+    animation: shimmer 1.5s infinite;
+  }
+  @keyframes shimmer {
+    0%   { filter: brightness(1); }
+    50%  { filter: brightness(1.3); }
+    100% { filter: brightness(1); }
+  }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <!-- Header -->
+  <header>
+    <div class="logo">RAG<span>Studio</span></div>
+    <div class="server-badge">
+      <div class="dot" id="serverDot"></div>
+      <span id="serverStatus">connecting…</span>
+    </div>
+  </header>
+
+  <!-- Server config -->
+  <div class="config-bar">
+    <label>API BASE</label>
+    <input type="text" id="apiBase" value="http://localhost:8000" placeholder="http://localhost:8000" />
+    <button class="btn btn-secondary" onclick="pingServer()">Ping</button>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <button class="tab active" onclick="switchTab('yt')">YT Captions</button>
+    <button class="tab" onclick="switchTab('upload')">Video Upload</button>
+    <button class="tab" onclick="switchTab('chat')">Chat</button>
+    <button class="tab" onclick="switchTab('status')">Status</button>
+  </div>
+
+  <!-- ═══ TAB: YT Captions ═══ -->
+  <div class="panel active" id="tab-yt">
+    <div class="card">
+      <div class="card-title">Index via YouTube Captions</div>
+      <div class="field">
+        <label>YouTube Video ID</label>
+        <div class="row">
+          <input type="text" id="ytVideoId" placeholder="e.g. dQw4w9WgXcQ" />
+          <button class="btn btn-primary" onclick="indexYT()">Index Video</button>
+        </div>
+        <div style="margin-top:8px; font-family:var(--mono); font-size:11px; color:var(--muted)">
+          Extract from URL: youtube.com/watch?v=<strong style="color:var(--accent)">VIDEO_ID</strong>
+        </div>
+      </div>
+      <div class="card-title" style="margin-top:8px">Response</div>
+      <div class="response-box" id="ytResponse">Waiting for request…</div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Check Index Status</div>
+      <div class="row">
+        <input type="text" id="ytStatusId" placeholder="Video ID to check" />
+        <button class="btn btn-secondary" onclick="checkStatus('ytStatusId', 'ytStatusResponse')">Check</button>
+      </div>
+      <div style="margin-top:14px">
+        <div class="response-box" id="ytStatusResponse">—</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ TAB: Video Upload (Sarvam STT) ═══ -->
+  <div class="panel" id="tab-upload">
+    <div class="card">
+      <div class="card-title">Index via Video Upload <span class="badge stt" style="margin-left:6px">Sarvam STT</span></div>
+
+      <div class="upload-zone" id="uploadZone">
+        <input type="file" id="videoFile" accept="video/*,.mp4,.mkv,.avi,.mov,.webm" onchange="onFileChosen()" />
+        <div class="upload-icon">🎬</div>
+        <div class="upload-label">
+          <strong>Drop a video file here</strong>
+          <span>mp4 · mkv · avi · mov · webm — any language</span>
+        </div>
+      </div>
+      <div id="fileChosen" style="display:none" class="file-chosen">
+        <span>📎</span><span id="fileName"></span>
+      </div>
+
+      <div class="divider">options</div>
+
+      <div class="field">
+        <label>Custom Video ID <span style="color:var(--muted)">(optional — auto-generated if blank)</span></label>
+        <input type="text" id="uploadVideoId" placeholder="my-video-id" />
+      </div>
+
+      <button class="btn btn-blue" onclick="indexVideoUpload()" style="width:100%; justify-content:center">
+        Upload &amp; Index with Sarvam STT
+      </button>
+
+      <div class="progress-wrap" id="uploadProgress" style="display:none">
+        <div class="progress-label" id="progressLabel">Uploading…</div>
+        <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+      </div>
+
+      <div style="margin-top:16px">
+        <div class="card-title">Response</div>
+        <div class="response-box" id="uploadResponse">Waiting for request…</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ TAB: Chat ═══ -->
+  <div class="panel" id="tab-chat">
+    <div class="card">
+      <div class="card-title">Ask a Question</div>
+      <div class="field">
+        <label>Video ID</label>
+        <input type="text" id="chatVideoId" placeholder="The video_id you indexed" />
+      </div>
+      <div class="chat-window" id="chatWindow">
+        <div class="msg bot">👋 Enter a Video ID above, then ask anything about that video.</div>
+      </div>
+      <div class="chat-input-row">
+        <input type="text" id="chatQuestion" placeholder="Ask something about the video…" onkeydown="if(event.key==='Enter')sendChat()" />
+        <button class="btn btn-primary" onclick="sendChat()">Send ↑</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ TAB: Status ═══ -->
+  <div class="panel" id="tab-status">
+    <div class="card">
+      <div class="card-title">Server Health</div>
+      <div class="status-grid">
+        <div class="stat-box">
+          <div class="stat-label">API Server</div>
+          <div class="stat-value" id="srvVal">—</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Base URL</div>
+          <div class="stat-value" id="urlVal" style="font-size:11px;word-break:break-all">—</div>
+        </div>
+      </div>
+      <div style="margin-top:16px">
+        <button class="btn btn-secondary" onclick="pingServer(true)">Refresh Status</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Check Any Video</div>
+      <div class="row">
+        <input type="text" id="statusCheckId" placeholder="Enter a Video ID" />
+        <button class="btn btn-secondary" onclick="checkStatus('statusCheckId', 'statusCheckResponse')">Check</button>
+      </div>
+      <div style="margin-top:14px">
+        <div class="response-box" id="statusCheckResponse">—</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Request Log</div>
+      <div class="response-box" id="requestLog" style="min-height:160px; font-size:11px; color:var(--muted)">No requests yet.</div>
+    </div>
+  </div>
+
+</div><!-- /shell -->
+
+<script>
+  // ── Utilities ──────────────────────────────────────────────────────────────
+  const $ = id => document.getElementById(id);
+  const apiBase = () => $('apiBase').value.replace(/\/$/, '');
+
+  const logLines = [];
+  function log(msg) {
+    const ts = new Date().toLocaleTimeString();
+    logLines.unshift(`[${ts}] ${msg}`);
+    if (logLines.length > 60) logLines.pop();
+    $('requestLog').textContent = logLines.join('\n');
+  }
+
+  function setBox(id, text, state = '') {
+    const el = $(id);
+    el.className = 'response-box' + (state ? ' ' + state : '');
+    el.textContent = text;
+  }
+
+  function fmt(obj) { return JSON.stringify(obj, null, 2); }
+
+  async function apiFetch(path, opts = {}) {
+    const url = apiBase() + path;
+    log(`${opts.method || 'GET'} ${path}`);
+    const res = await fetch(url, opts);
+    const data = await res.json().catch(() => ({ error: 'Non-JSON response' }));
+    log(`→ ${res.status} ${res.ok ? '✓' : '✗'}`);
+    return { ok: res.ok, status: res.status, data };
+  }
+
+  // ── Tab switching ──────────────────────────────────────────────────────────
+  function switchTab(name) {
+    document.querySelectorAll('.tab').forEach((t, i) => {
+      const names = ['yt', 'upload', 'chat', 'status'];
+      t.classList.toggle('active', names[i] === name);
+    });
+    document.querySelectorAll('.panel').forEach(p => {
+      p.classList.toggle('active', p.id === 'tab-' + name);
+    });
+  }
+
+  // ── Server ping ────────────────────────────────────────────────────────────
+  async function pingServer(verbose = false) {
+    const dot = $('serverDot');
+    const st  = $('serverStatus');
+    dot.className = 'dot';
+    st.textContent = 'connecting…';
+    $('urlVal').textContent = apiBase();
+    try {
+      const { ok, data } = await apiFetch('/');
+      if (ok) {
+        dot.className = 'dot live';
+        st.textContent = 'live';
+        $('srvVal').className = 'stat-value ok';
+        $('srvVal').textContent = '✓ online';
+        if (verbose) log('Server OK: ' + (data.message || ''));
+      } else throw new Error();
+    } catch {
+      dot.className = 'dot';
+      st.textContent = 'offline';
+      $('srvVal').className = 'stat-value err';
+      $('srvVal').textContent = '✗ offline';
+    }
+  }
+
+  // ── YT Index ──────────────────────────────────────────────────────────────
+  async function indexYT() {
+    const vid = $('ytVideoId').value.trim();
+    if (!vid) return alert('Enter a video ID');
+    setBox('ytResponse', '⏳ Indexing…', 'loading');
+    try {
+      const { ok, data } = await apiFetch('/index', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ video_id: vid })
+      });
+      setBox('ytResponse', fmt(data), ok ? 'success' : 'error');
+    } catch (e) {
+      setBox('ytResponse', '❌ Network error: ' + e.message, 'error');
+    }
+  }
+
+  // ── Status check ──────────────────────────────────────────────────────────
+  async function checkStatus(inputId, responseId) {
+    const vid = $(inputId).value.trim();
+    if (!vid) return alert('Enter a video ID');
+    setBox(responseId, '⏳ Checking…', 'loading');
+    try {
+      const { ok, data } = await apiFetch('/status/' + encodeURIComponent(vid));
+      const state = data.indexed ? 'success' : '';
+      setBox(responseId, fmt(data), state);
+    } catch (e) {
+      setBox(responseId, '❌ Network error: ' + e.message, 'error');
+    }
+  }
+
+  // ── File upload ────────────────────────────────────────────────────────────
+  function onFileChosen() {
+    const f = $('videoFile').files[0];
+    if (!f) return;
+    $('fileName').textContent = `${f.name}  (${(f.size/1e6).toFixed(1)} MB)`;
+    $('fileChosen').style.display = 'flex';
+  }
+
+  // Drag & drop styling
+  const zone = $('uploadZone');
+  zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('dragover'); });
+  zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
+  zone.addEventListener('drop', e => {
+    e.preventDefault();
+    zone.classList.remove('dragover');
+    const f = e.dataTransfer.files[0];
+    if (f) { $('videoFile').files = e.dataTransfer.files; onFileChosen(); }
+  });
+
+  function setProgress(pct, label) {
+    $('uploadProgress').style.display = 'block';
+    $('progressLabel').textContent = label;
+    $('progressFill').style.width = pct + '%';
+  }
+
+  async function indexVideoUpload() {
+    const fileInput = $('videoFile');
+    if (!fileInput.files.length) return alert('Choose a video file first');
+    const vid = $('uploadVideoId').value.trim();
+    const file = fileInput.files[0];
+
+    setBox('uploadResponse', '⏳ Uploading file…', 'loading');
+    setProgress(20, 'Uploading video…');
+
+    const form = new FormData();
+    form.append('file', file);
+    if (vid) form.append('video_id', vid);
+
+    try {
+      log(`POST /index-video  file=${file.name}  video_id=${vid || 'auto'}`);
+      setProgress(40, 'Extracting audio with moviepy…');
+
+      const res = await fetch(apiBase() + '/index-video', {
+        method: 'POST',
+        body: form
+      });
+
+      setProgress(75, 'Running Sarvam STT…');
+      const data = await res.json().catch(() => ({ error: 'Non-JSON response' }));
+      setProgress(100, 'Done!');
+      log(`→ ${res.status} ${res.ok ? '✓' : '✗'}`);
+
+      setBox('uploadResponse', fmt(data), res.ok ? 'success' : 'error');
+
+      // Auto-fill chat video_id
+      if (res.ok && data.video_id) {
+        $('chatVideoId').value = data.video_id;
+      }
+
+      setTimeout(() => { $('uploadProgress').style.display = 'none'; }, 2000);
+    } catch (e) {
+      setBox('uploadResponse', '❌ Network error: ' + e.message, 'error');
+      $('uploadProgress').style.display = 'none';
+    }
+  }
+
+  // ── Chat ──────────────────────────────────────────────────────────────────
+  function addMsg(text, role) {
+    const win = $('chatWindow');
+    const msg = document.createElement('div');
+    msg.className = 'msg ' + role;
+    msg.textContent = text;
+    win.appendChild(msg);
+    win.scrollTop = win.scrollHeight;
+    return msg;
+  }
+
+  async function sendChat() {
+    const vid = $('chatVideoId').value.trim();
+    const q   = $('chatQuestion').value.trim();
+    if (!vid) return alert('Enter the Video ID first');
+    if (!q)   return;
+
+    addMsg(q, 'user');
+    $('chatQuestion').value = '';
+
+    const thinking = addMsg('thinking…', 'bot thinking');
+    try {
+      const { ok, data } = await apiFetch('/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ video_id: vid, question: q })
+      });
+      thinking.remove();
+      addMsg(ok ? data.answer : ('Error: ' + (data.detail || 'Unknown error')), 'bot');
+    } catch (e) {
+      thinking.remove();
+      addMsg('❌ Network error: ' + e.message, 'bot');
+    }
+  }
+
+  // ── Boot ──────────────────────────────────────────────────────────────────
+  pingServer();
+</script>
+</body>
+</html>
