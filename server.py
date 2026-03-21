@@ -1,16 +1,17 @@
 """
-server.py — FastAPI backend for YouTube RAG Chrome Extension
-============================================================
+server.py — FastAPI backend for Adaptive YouTube RAG
+=====================================================
+
 Run with:
     uvicorn server:app --reload --port 8000
 
 Endpoints
 ---------
 GET  /                          Health check
-GET  /status/{video_id}         Check if a video is indexed
-POST /index                     Index a YouTube video via its captions
-POST /index-video               Index ANY video via file upload + Sarvam STT  ← NEW
-POST /chat                      Ask a question about an indexed video
+GET  /status/{video_id}         Check indexed levels for a video
+POST /index                     Index a YouTube video (captions → 3 levels)
+POST /index-video               Index any uploaded video file (Sarvam STT → 3 levels)
+POST /chat                      Ask a question — auto-selects retrieval level
 """
 
 import os
@@ -20,19 +21,19 @@ import traceback
 
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from transcripts import fetch_transcript, fetch_transcript_from_video, split_transcript
+from transcripts import fetch_transcript, fetch_transcript_from_video, build_all_levels
 from vectorstore import (
     get_pinecone_index, get_embedding_model,
-    is_video_indexed, store_chunks, get_vectorstore
+    is_video_indexed, store_all_levels, get_indexed_levels,
 )
-from retriever import get_retriever
-from chain import build_chain, ask
+from chain import adaptive_ask
 from config import TEMP_AUDIO_DIR
 
 # ── App Setup ──────────────────────────────────────────────────────────────────
-app = FastAPI(title="YouTube RAG API", version="2.0.0")
+app = FastAPI(title="Adaptive YouTube RAG API", version="3.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -45,10 +46,11 @@ app.add_middleware(
 embedding = None
 index     = None
 
+
 @app.on_event("startup")
 async def startup():
     global embedding, index
-    print("\n🚀 Starting YouTube RAG server...")
+    print("\n🚀 Starting Adaptive YouTube RAG server...")
     embedding = get_embedding_model()
     index     = get_pinecone_index()
     os.makedirs(TEMP_AUDIO_DIR, exist_ok=True)
@@ -56,6 +58,7 @@ async def startup():
 
 
 # ── Request / Response Models ──────────────────────────────────────────────────
+
 class IndexRequest(BaseModel):
     video_id: str
 
@@ -64,51 +67,93 @@ class ChatRequest(BaseModel):
     question: str
 
 class StatusResponse(BaseModel):
-    video_id: str
-    indexed:  bool
-    message:  str
+    video_id:       str
+    indexed:        bool
+    indexed_levels: dict        # {"broad": bool, "medium": bool, "narrow": bool}
+    message:        str
 
 
 # ── Routes ─────────────────────────────────────────────────────────────────────
 
 @app.get("/")
 def root():
-    return {"status": "ok", "message": "YouTube RAG API v2 is running"}
+    return FileResponse("static/index.html")
+
+@app.get("/api_test")
+def api_test():
+    return FileResponse("static/api_test.html")
 
 
 @app.get("/status/{video_id}", response_model=StatusResponse)
 def check_status(video_id: str):
-    """Check if a video is already indexed in Pinecone."""
+    """
+    Check if a video is indexed and which levels are present.
+    Returns a breakdown per level (broad / medium / narrow).
+    """
     print(f"\n[Status] Checking video: {video_id}")
-    indexed = is_video_indexed(index, video_id)
-    msg     = "Already indexed" if indexed else "Not indexed yet"
-    return StatusResponse(video_id=video_id, indexed=indexed, message=msg)
+    indexed        = is_video_indexed(index, video_id)
+    indexed_levels = get_indexed_levels(index, video_id)
+    msg = "Fully indexed (all 3 levels)" if indexed else (
+        f"Partially indexed: {indexed_levels}" if any(indexed_levels.values())
+        else "Not indexed yet"
+    )
+    print(f"[Status] {msg}")
+    return StatusResponse(
+        video_id=video_id,
+        indexed=indexed,
+        indexed_levels=indexed_levels,
+        message=msg,
+    )
 
 
 @app.post("/index")
 def index_video(req: IndexRequest):
     """
-    Index a YouTube video using its auto-generated captions.
-    Fast but requires the video to have captions enabled.
+    Index a YouTube video using its captions.
+
+    Builds and stores THREE levels in Pinecone:
+      • broad   — full-video LLM summary
+      • medium  — per-section LLM summaries
+      • narrow  — verbatim small chunks
+
+    The video must have captions enabled. For caption-less or
+    non-English videos, use POST /index-video instead.
     """
     video_id = req.video_id
-    print(f"\n[Index] YT captions — video: {video_id}")
+    print(f"\n[Index] YouTube captions — video: {video_id}")
 
     try:
         if is_video_indexed(index, video_id):
-            return {"video_id": video_id, "status": "skipped", "message": "Video already indexed"}
+            levels = get_indexed_levels(index, video_id)
+            return {
+                "video_id": video_id,
+                "status":   "skipped",
+                "message":  "Video already fully indexed",
+                "levels":   levels,
+            }
 
+        # Fetch transcript
         transcript = fetch_transcript(video_id)
         if not transcript:
-            raise HTTPException(status_code=404, detail="No captions available for this video")
+            raise HTTPException(
+                status_code=404,
+                detail="No captions available for this video. Try POST /index-video instead."
+            )
 
-        chunks = split_transcript(transcript, video_id)
-        store_chunks(chunks, embedding, video_id)
+        # Build all 3 levels
+        level_docs = build_all_levels(transcript, video_id)
 
+        # Store all 3 levels into Pinecone
+        store_all_levels(level_docs, embedding, video_id)
+
+        counts = {lvl: len(docs) for lvl, docs in level_docs.items()}
+        print(f"[Index] ✅ Done — chunks per level: {counts}")
         return {
-            "video_id": video_id,
-            "status":   "indexed",
-            "message":  f"Video indexed via captions ({len(chunks)} chunks)"
+            "video_id":          video_id,
+            "status":            "indexed",
+            "transcript_source": "youtube_captions",
+            "chunks_per_level":  counts,
+            "message":           "Video indexed across all 3 retrieval levels",
         }
 
     except HTTPException:
@@ -121,106 +166,103 @@ def index_video(req: IndexRequest):
 @app.post("/index-video")
 async def index_video_file(
     file:     UploadFile = File(...),
-    video_id: str        = Form(None)   # optional; auto-generated from filename if omitted
+    video_id: str        = Form(None),
 ):
     """
-    Index ANY video by uploading the file directly.
-
-    Pipeline:
-        uploaded file → audio extraction (moviepy) → Sarvam STT → chunk → Pinecone
+    Index ANY video file via Sarvam AI speech-to-text.
 
     Supports any language — no captions required.
+    Builds and stores the same three Pinecone levels as /index.
 
     Form fields:
-        file      : The video file (mp4, mkv, avi, mov, webm, …)
-        video_id  : Optional custom ID. If omitted, a UUID is generated.
-
-    Returns:
-        { video_id, status, message, transcript_source, chunks }
+        file      : Video file (mp4, mkv, avi, mov, webm, …)
+        video_id  : Optional ID. Auto-generated from filename if omitted.
     """
-    # ── Derive a stable video_id ───────────────────────────────────────────────
     if not video_id:
         base     = os.path.splitext(file.filename)[0] if file.filename else "video"
         video_id = f"{base}_{uuid.uuid4().hex[:8]}"
 
-    print(f"\n[IndexVideo] File upload — video_id: {video_id}, file: {file.filename}")
+    print(f"\n[IndexVideo] Upload — video_id: {video_id}, file: {file.filename}")
 
-    # ── Save uploaded file to a temp location ──────────────────────────────────
-    ext          = os.path.splitext(file.filename)[-1] if file.filename else ".mp4"
-    temp_video   = os.path.join(TEMP_AUDIO_DIR, f"{video_id}{ext}")
+    ext        = os.path.splitext(file.filename)[-1] if file.filename else ".mp4"
+    temp_video = os.path.join(TEMP_AUDIO_DIR, f"{video_id}{ext}")
 
     try:
-        # Skip if already indexed
         if is_video_indexed(index, video_id):
             return {
                 "video_id": video_id,
                 "status":   "skipped",
-                "message":  "Video already indexed"
+                "message":  "Video already fully indexed",
             }
 
-        # Save upload to disk
-        print(f"  [IndexVideo] Saving uploaded file → {temp_video}")
+        # Save the upload to disk temporarily
+        print(f"  [IndexVideo] Saving upload → {temp_video}")
         with open(temp_video, "wb") as f:
             shutil.copyfileobj(file.file, f)
         size_mb = os.path.getsize(temp_video) / (1024 * 1024)
         print(f"  [IndexVideo] ✅ Saved ({size_mb:.1f} MB)")
 
         # Transcribe via Sarvam (audio extraction happens inside)
-        print(f"  [IndexVideo] Starting Sarvam transcription pipeline...")
         transcript = fetch_transcript_from_video(temp_video)
-
         if not transcript or not transcript.strip():
             raise HTTPException(status_code=422, detail="Sarvam returned an empty transcript")
 
-        # Chunk → store
-        chunks = split_transcript(transcript, video_id)
-        store_chunks(chunks, embedding, video_id)
+        # Build all 3 levels + store
+        level_docs = build_all_levels(transcript, video_id)
+        store_all_levels(level_docs, embedding, video_id)
 
-        print(f"[IndexVideo] ✅ Done — {len(chunks)} chunks stored for video_id: {video_id}")
+        counts = {lvl: len(docs) for lvl, docs in level_docs.items()}
+        print(f"[IndexVideo] ✅ Done — chunks per level: {counts}")
         return {
             "video_id":          video_id,
             "status":            "indexed",
             "transcript_source": "sarvam_stt",
-            "chunks":            len(chunks),
-            "message":           f"Video indexed via Sarvam STT ({len(chunks)} chunks)"
+            "chunks_per_level":  counts,
+            "message":           "Video indexed via Sarvam STT across all 3 retrieval levels",
         }
 
     except HTTPException:
         raise
     except Exception as e:
-        print(f"[IndexVideo] ❌ Error: {e}")
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
-
     finally:
-        # Always delete the temp video file
         if os.path.exists(temp_video):
             os.remove(temp_video)
-            print(f"  [IndexVideo] 🗑️  Cleaned up temp video: {temp_video}")
+            print(f"  [IndexVideo] 🗑️  Cleaned up: {temp_video}")
 
 
 @app.post("/chat")
 def chat(req: ChatRequest):
     """
-    Answer a question about an indexed video using RAG.
-    Works for videos indexed via either /index (captions) or /index-video (Sarvam STT).
+    Answer a question about an indexed video using Adaptive RAG.
+
+    Automatically:
+      1. Classifies the question (broad / medium / narrow)
+      2. Retrieves from the matching Pinecone namespace
+      3. Applies the appropriate prompt
+      4. Returns the answer + which retrieval level was used
     """
     video_id = req.video_id
     question = req.question
-    print(f"\n[Chat] Video: {video_id} | Question: '{question}'")
+    print(f"\n[Chat] video: {video_id} | question: '{question}'")
 
     try:
         if not is_video_indexed(index, video_id):
             raise HTTPException(
                 status_code=400,
-                detail="Video not indexed yet. Call /index or /index-video first."
+                detail="Video not indexed yet. Call POST /index or POST /index-video first.",
             )
 
-        retriever = get_retriever(embedding, video_id=video_id)
-        chain     = build_chain(retriever)
-        answer    = ask(chain, question)
+        result = adaptive_ask(embedding, video_id=video_id, question=question)
 
-        return {"video_id": video_id, "question": question, "answer": answer}
+        print(f"[Chat] ✅ Answered ({result['query_type']} level, {len(result['answer'])} chars)")
+        return {
+            "video_id":   video_id,
+            "question":   question,
+            "answer":     result["answer"],
+            "query_type": result["query_type"],   # tells the client which level was used
+        }
 
     except HTTPException:
         raise
